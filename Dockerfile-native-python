@@ -1,0 +1,12 @@
+FROM alpine:3.10
+
+ENV LANG C.UTF-8
+
+CMD printf "Start container with command:\n  sh\nStart Python in container:\n  python3\n"
+
+# ca-certificates are necessary for pip to download packages (otherwise cannot check certificates)
+# pkgconfig required by -dev
+RUN apk add --no-cache openssl ca-certificates pkgconfig wget python3 python3-dev \
+    && ln -s /usr/bin/pip3 /usr/local/bin/pip \
+    && ln -s /usr/bin/pip3 /usr/bin/pip
+

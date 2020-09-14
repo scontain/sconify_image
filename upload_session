@@ -1,0 +1,162 @@
+#!/bin/bash
+#
+# Note: This is only for demo purpose! Use scone CLI to upload session securely!
+#
+
+set -e -x
+
+function msg_color {
+    priority=$1
+    if [[ $priority == "fatal" ]] ; then
+        echo -e "\033[31m"
+    elif [[ $priority == "error" ]] ; then
+        echo -e "\033[34m"
+    elif [[ $priority == "warning" ]] ; then
+        echo -e "\033[35m"
+    elif [[ $priority == "info" ]] ; then
+        echo -e "\033[36m"
+    elif [[ $priority == "debug" ]] ; then
+        echo -e "\033[37m"
+    elif [[ $priority == "default" ]] ; then
+        echo -e "\033[00m"
+    else
+        echo -e "\033[32m";
+    fi
+}
+
+function error_exit {
+    msg_color "error"
+    echo "ERROR: $1" >&2
+    msg_color "default"
+    exit 1
+}
+
+
+function check_empty
+    if [[ -z "$2" ]] ; then
+        error_exit "$1"
+    fi
+
+# help
+
+function show_help {
+    echo -e \
+"Usage: upload_session [OPTIONS]
+A script to upload session. For production, please use the SCONE CLI instead.
+
+The following options are supported:
+  --template=[TEMPLATE_FILE] policy template file
+  --session=[SESSION_FILE]   set the base image
+  --image=[IMAGE]            global name of the image
+  --cas=[CAS_ADDR]           name of the CACAS_ADDRS
+
+  -h, --help                 display this help and exit
+
+Usage example: encrypt Python image
+./upload_session --from=native_flask_restapi_image --to=new_image --template=flask.template --prefix=flask --cas=4-0-0.scone-cas.cf
+
+It writes the new session into file SESSION_FILE. It will push this to the specified CAS.
+On success, it will print the session name on stdout.
+"
+    exit 0
+}
+
+# parse arguments
+
+function parse_args {
+    PARAMS=""
+
+    if [[ $# == 0 ]]; then
+        show_help
+    fi
+
+    while (( "$#" )); do
+    arg=$1
+    case "$arg" in
+
+        -h|--help)
+        show_help
+        shift
+        ;;
+
+        --template=*)
+        TEMPLATE_FILE="${1#*=}"
+        shift
+        ;;
+
+        --session=*)
+        SESSION_FILE="${1#*=}"
+        shift
+        ;;
+
+        --image=*)
+        IMAGE="${1#*=}"
+        shift
+        ;;
+
+        --cas=*)
+        CAS_ADDR="${1#*=}"
+        shift
+        ;;
+
+        *) # preserve positional arguments
+        error_exit "unsupported command '$1'"
+        ;;
+    esac
+    done
+    # set positional arguments in their proper place
+
+    eval set -- "$PARAMS"
+}
+
+parse_args $@
+
+# ensure that we have self-signed client certificate
+
+if [[ ! -f client.pem || ! -f client-key.pem  ]] ; then
+    openssl req -newkey rsa:4096 -days 365 -nodes -x509 -out client.pem -keyout client-key.pem -config clientcertreq.conf
+fi
+
+check_empty "--session=SESSION_FILE" "$SESSION_FILE"
+check_empty "--image=IMAGE" "$IMAGE"
+
+if [[ -z "$CAS_ADDR" ]] ; then
+    CAS_ADDR="scone-cas.cf"  # default public CAS for now
+fi
+
+function read_properties()
+{
+    file="mrenclaves.txt"
+    curl "https://sconedocs.github.io/txt/mrenclaves.txt" -o "$file"
+    # gpg --no-default-keyring --keyring mrenclaves-verification.asc --verify  mrenclaves.txt || exit 1
+    gpg --import mrenclaves-verification.asc
+    gpg --verify  mrenclaves.txt || exit 1
+    image="$1"
+    while IFS="=" read -r key value; do
+        if [[ "$key" == "$image" ]] ; then
+        export MRENCLAVE="$value" ;
+        fi
+    done < "$file"
+}
+
+# todo: download newest mrenclaves.html
+read_properties "$IMAGE"
+
+# create session file if template is specified
+
+if [[ ! -z "$TEMPLATE_FILE" ]] ; then
+    SESSION_VAR=$(head -1 < "$TEMPLATE_FILE" | awk '{print $2}')
+    SESSION_VAR=${SESSION_VAR:1:256} # cut off $
+    if [[ -z ${!SESSION_VAR} ]] ; then
+        printf -v "$SESSION_VAR" "$SESSION_VAR-$RANDOM-$RANDOM-$RANDOM"
+        declare -x $SESSION_VAR # export session variables
+    fi
+    SCONE="\$SCONE" envsubst  < "$TEMPLATE_FILE" > "$SESSION_FILE"
+else
+    SESSION=$(head -1 < "$SESSION_FILE" | awk '{print $2}')
+    SESSION_VAR="SESSION"
+fi
+
+# note: this is insecure - use scone session create instead and we need to add error handling
+curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$SESSION_FILE -X POST https://$CAS_ADDR:8081/session >/dev/stderr
+echo ${!SESSION_VAR}
