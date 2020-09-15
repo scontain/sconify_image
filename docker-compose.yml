@@ -1,0 +1,16 @@
+version: '3.2'
+services:
+    las:
+        image: sconecuratedimages/kubernetes:las
+        devices:
+         - "$DEVICE"
+    python:
+        image: "$IMAGE"
+        devices:
+         - "$DEVICE"
+        command: sh -c "sleep 15; export SCONE_LOG=7 ; export SCONE_LAS_ADDR=las ; export SCONE_CAS_ADDR=$SCONE_CAS_ADDR ; export SCONE_CONFIG_ID=$SESSION/service ; echo SESSION=$SESSION SCONE_HEAP=$SCONE_HEAP ; export SCONE_STACK=$SCONE_STACK ;export SCONE_HEAP=$SCONE_HEAP ; export SCONE_ALLOW_DLOPEN=$SCONE_ALLOW_DLOPEN ; $BINARY"
+        depends_on:
+         - las
+        privileged: true
+        ports:
+         - "4996:4996"

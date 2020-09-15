@@ -3,7 +3,6 @@ from flask_restful import Resource, Api
 import json
 import os
 import random
-import redis
 
 
 app = Flask(__name__)
@@ -22,7 +21,7 @@ class Patient(Resource):
         return Response({"error": "unknown patient_id"}, status=404, mimetype='application/json')
 
     def post(self, patient_id):
-        if db.gets(patient_id) is None:
+        if db.get(patient_id) is not None:
             return Response({"error": "already exists"}, status=403, mimetype='application/json')
         else:
             # convert patient data to binary.

@@ -23,7 +23,7 @@ WITH ANY OTHER PROGRAMS), EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF
 Copyright (C) 2020 scontain.com
 '
 
-set -e -x
+set -e 
 
 # print the right color for each level
 #
@@ -68,7 +68,7 @@ function show_help {
 A script to convert a Python Image into an encrypted Python image running inside of an enclave.
 The approach assumes that one has created
 
-- FROMIMAGE: an image that is not encrypted and that runs natively
+- NATIVE_IMAGE: an image that is not encrypted and that runs natively
 - POLICY: a policy template to generate a session policy for this image
 
 and it generate
@@ -82,42 +82,39 @@ it uses some standard images in the generation:
 
 The following options are supported:
 
-  --from=[FROMIMAGE]         source image
-  --to=[TOIMAGE]             destination image
-  --template=[TEMPLATE_FILE] file containing policy template
-  --session=[SESSION_FILE]   file that will contain the session
-  --prefix=[PREFIX]          prefix of session name
-  --dirs=[DIRECTORIES]       set of directories to encrypt
-  --plain=[DIRECTORIES]      copy directories that are not encrypted
-  --cas=[CAS_ADDR]           set the name of the CAS_ADDR
-  --base=[BASE]              set the base image
-  --cli=[CLI]                set the SCONE CLI image
+  --from=NATIVE_IMAGE      name of native image
+  --to=TO_IMAGE            name of encrypted image
+  --template=TEMPLATE_FILE file containing policy template (default=session-template.yml)
+  --session=SESSION_FILE   file that will contain the session (default=session.yml)
+  --namespace=NAMESPACE    namespace of this session (default=RANDOM)
+  --dir=DIRECTORY          add directory to encrypt; add one option per directory
+  --plain=DIRECTORIES      copy directories that are not encrypted
+  --cas=CAS_ADDR           set the name of the CAS_ADDR
+  --base=BASE              set the base image used to generate the encrypted image
+  --cli=CLI                set the SCONE CLI image
+  --trace=TRACEFILE        use tracefile to create encrypted files
+  --name=SESSION	       name of CAS policy session
 
-  -h, --help                     display this help and exit
+  -h, --help               display this help and exit
 
 Usage example: encrypt Python image
-./sconify_image --from=native_flask_restapi_image --to=new_image --template=flask.template --prefix=flask --cas=4-0-0.scone-cas.cf
-
-This uility replace the environment variables
-- \$SCONE_FSPF_TAG  by the tag of the encrypted image
-- \$SCONE_FSPF_KEY  by the key of the encrypted image
-- \$SESSION         by the name of the policy
-
-It writes the new session into file \$SESSION.policy. It will push this to the CAS in case CAS was specified.
-On success, it will print \$SESSION on stdout.
+./sconify_image --name=flask --from=native_flask_restapi_image --to=new_image --template=flask.template --namespace=my_unique_namespace --cas=4-0-0.scone-cas.cf
 "
     exit 0
 }
 
-PREFIX="SCONIFY-"
-FROM_IMAGE=""
+# define default arguments
+
+NAMESPACE="NS-$RANDOM"
+NATIVE_IMAGE=""
 TO_IMAGE=""
-ENC_DIRS=("/home" "/root" "/usr/local/lib" "/app/" "/usr/lib/python3.7")
-PLAIN_DIRS=("/etc")
-TEMPLATE_FILE=""
-CAS="4-0-0.scone-cas.cf"
+PLAIN_DIRS=()
+TEMPLATE_FILE="session-template.yml"
+SESSION_FILE="session.yml"
+CAS="4-2-1.scone-cas.cf"
 CLI_IMAGE="sconecuratedimages/kubernetes:hello-k8s-scone0.1"
-BASE_IMAGE="sconecuratedimages/apps:python-3.7.3-alpine3.10-scone4.2"
+BASE_IMAGE="sconecuratedimages/kubernetes:python-3.7.3-alpine3.10-scone4.2"
+TRACEFILE=""
 
 function parse_args {
     PARAMS=""
@@ -135,8 +132,28 @@ function parse_args {
         shift
         ;;
 
+        --secrets=*)
+            export SECRETS="${1#*=}"
+            shift
+            ;;
+
+        --injectedfiles=*)
+            export INJECTED_FILES="${1#*=}"
+            shift
+            ;;
+
+        --name=*)
+            export SESSION="${1#*=}"
+            shift
+            ;;
+
+        --binary=*)
+        BINARY="${1#*=}"
+            shift
+            ;;
+
         --from=*)
-        FROM_IMAGE="${1#*=}"
+        NATIVE_IMAGE="${1#*=}"
         shift
         ;;
 
@@ -150,19 +167,28 @@ function parse_args {
         shift
         ;;
 
+        --trace=*)
+        TRACE_FILE="${1#*=}"
+        shift
+        ;;
+
         --session=*)
         SESSION_FILE="${1#*=}"
         shift
-
         ;;
 
         --dir=*)
-        ENC_DIRS=(${1#*=})
+        ENC_DIRS+=(${1#*=})
         shift
         ;;
 
-        --prefix=*)
-        PREFIX="${1#*=}"
+        --name=*)
+        export SESSION="${1#*=}"
+        shift
+        ;;
+
+        --namespace=*)
+        export NAMESPACE="${1#*=}"
         shift
         ;;
 
@@ -187,29 +213,29 @@ function parse_args {
 }
 
 parse_args $@
-check_empty "--from=IMAGE" "$FROM_IMAGE"
+
+# check that required arguments are all defined
+
+check_empty "--from=IMAGE" "$NATIVE_IMAGE"
 check_empty "--to=IMAGE" "$TO_IMAGE"
-check_empty "--dirs=DIRS" "$ENC_DIRS"
 check_empty "--template=TEMPLATE_FILE" "$TEMPLATE_FILE"
 check_empty "--cas=CAS_ADDR" "$CAS_ADDR"
 check_empty "--cli=CLI_IMAGE" "$CLI_IMAGE"
 check_empty "--base=BASE_IMAGE" "$BASE_IMAGE"
 check_empty "--session=[SESSION_FILE]" "$SESSION_FILE"
+check_empty "--binary=[BINARY]" "$BINARY"
+check_empty "--dirs=DIRS" "$ENC_DIRS"
 
-echo "Converting image $FROM_IMAGE to encrypted image $TO_IMAGE"
-
-# Approach:
-#  we generate a multi-stage Dockerfile in which we copy all the mentioned files into a new Docker image in which we encrypt all files
-#  we then copy all files that 
+#  "Converting image $NATIVE_IMAGE to encrypted image $TO_IMAGE"
 
 dir="$TO_IMAGE"
-mkdir "$dir" || error_exit "Directory $TO_IMAGE already exists."
-pushd "$dir"
-
+mkdir "$dir" || error_exit "Directory $TO_IMAGE already exists. Please remove if you want to regenerate."
+pushd "$dir" >>/dev/stderr
 
 cat >fspf.sh <<EOF
 #!/bin/bash
 
+set -e
 export SCONE_MODE=SIM
 mkdir -p /fspf
 mkdir -p /fspf/encrypted-files/
@@ -220,16 +246,27 @@ scone fspf addr /fspf/fs.fspf / --not-protected --kernel /
 EOF
 
 for DIR in "${ENC_DIRS[@]}" ; do
-    echo "$DIR"
+    # echo "$DIR"
     cat >>fspf.sh <<EOF
 # add encrypted region $DIR is stored in the image in /fspf/dir
 scone fspf addr /fspf/fs.fspf $DIR --encrypted --kernel /fspf/encrypted-files$DIR
 # encrypt and copy all files in directory /native$DIR to /fspf$DIR
 mkdir -p /fspf/encrypted-files$DIR
-scone fspf addf /fspf/fs.fspf $DIR /native-files$DIR /fspf/encrypted-files$DIR 
 EOF
 
+if [[ "$TRACE_FILE" == "" ]] ; then
+	echo "scone fspf addf /fspf/fs.fspf $DIR /native-files$DIR /fspf/encrypted-files$DIR" >>fspf.sh
+fi
 done
+
+if [[ "$TRACE_FILE" != "" ]] ; then
+	for FILE in "${FILES[@]}" ; do
+		DIR=$(dirname "$FILE")
+	        TOP=$(echo "$FILE" | awk -F/ '{print FS $2}')
+        	echo "mkdir -p /fspf/encrypted-files$DIR" >>fspf.sh
+        	echo "scone fspf addf /fspf/fs.fspf $TOP /native-files$FILE /fspf/encrypted-files$FILE" >>fspf.sh
+	done
+fi
 
 cat >>fspf.sh <<EOF
 # finally, encrypt the file system protection file and store the keys in directory (we assume in this demo that wee run on a trusted host)
@@ -238,15 +275,34 @@ cat /native-files/keytag
 EOF
 chmod a+x fspf.sh
 
-cat >Dockerfile <<EOF
-FROM $FROM_IMAGE
+cat >gettimestamps.sh <<EOF
+#!/bin/sh
+set -e
+apk add --no-cache coreutils
+echo "#!/bin/sh" >/fixtimestamps.sh
+echo "set -e" >>/fixtimestamps.sh
+echo "apk add --no-cache coreutils" >>/fixtimestamps.sh
+EOF
 
+for FILE in "${FILES[@]}" ; do
+     	 echo "stat --print=\"touch -a -d '%x' /fspf/encrypted-files$FILE\n\" $FILE >> /fixtimestamps.sh" >>gettimestamps.sh
+     	 echo "stat --print=\"touch -m -d '%y' /fspf/encrypted-files$FILE\n\"  $FILE >> /fixtimestamps.sh" >>gettimestamps.sh
+done
+echo "chmod a+x /fixtimestamps.sh" >>gettimestamps.sh
+echo "cat /fixtimestamps.sh" >>gettimestamps.sh # DEBUG
+
+chmod a+x gettimestamps.sh
+
+cat >Dockerfile <<EOF
+FROM $NATIVE_IMAGE
+COPY gettimestamps.sh /gettimestamps.sh
+RUN /gettimestamps.sh
 FROM $CLI_IMAGE
 COPY fspf.sh /fspf/fspf.sh
 EOF
 
 for DIR in "${ENC_DIRS[@]}" ; do
-    echo "$DIR"
+    # echo "$DIR"
     echo "COPY --from=0 $DIR /native-files$DIR" >>Dockerfile
 done
 
@@ -255,14 +311,20 @@ cat >>Dockerfile <<EOF
 RUN /fspf/fspf.sh
 FROM $BASE_IMAGE
 COPY --from=1  /fspf /fspf
+COPY --from=0  /fixtimestamps.sh /fixtimestamps.sh
 EOF
 for DIR in "${PLAIN_DIRS[@]}" ; do
-    echo "$DIR"
+    # echo "$DIR"
     echo "COPY --from=0 $DIR $DIR" >>Dockerfile
 done
-
+cat >>Dockerfile <<EOF
+RUN /fixtimestamps.sh \
+  && rm /fixtimestamps.sh
+EOF
 
 docker build --no-cache -t $TO_IMAGE . > build-output.txt
+
+# create policy
 
 export SCONE_FSPF_KEY=$(cat build-output.txt | grep "Encrypted file system protection file" | awk '{print $11}')
 export SCONE_FSPF_TAG=$(cat build-output.txt | grep "Encrypted file system protection file" | awk '{print $9}')
@@ -272,18 +334,36 @@ if [[ -z "$SCONE_FSPF_KEY" || -z "$SCONE_FSPF_TAG" ]] ; then
 	exit 1
 fi
 
-popd
+default_pwd="/"
+export ENVVARS=$(docker run -it --rm $NATIVE_IMAGE sh -c "env" | while IFS="=" read -r key value; do
+  if [[ "$key" == "PWD" ]] ; then
+     default_pwd="$value"
+  else
+     printf "        $key: \"${value/$'\r'}\"\r\n"
+  fi
+done ; echo "     pwd: \"$default_pwd\"" )
+# determine MrEnclave of sconified binary
+MRENCLAVE_0=$(docker run -it --rm -e SCONE_HASH=1 $TO_IMAGE $BINARY)
+export MRENCLAVE=${MRENCLAVE_0/$'\r'}
+CMD_0=$(docker image inspect --format "{{.Config.Cmd}}" $NATIVE_IMAGE)
+CMD_1=${CMD_0#"[/bin/sh -c "}
+export CMD=${CMD_1%"]"}
+
+envsubst '$SCONE_FSPF_KEY $SCONE_FSPF_TAG $SESSION $MRENCLAVE $ENVVARS $CMD $SECRETS $INJECTED_FILES $NAMESPACE'  < "../$TEMPLATE_FILE" >  "$SESSION_FILE"
+
 
 SOURCE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
-SESSION=$("$SOURCE_DIR/upload_session" --template="$TEMPLATE_FILE" --session="$SESSION_FILE"  --image="$BASE_IMAGE" --cas=$CAS_ADDR)
+# ensure that we have self-signed client certificate
 
-echo $SESSION
+if [[ ! -f client.pem || ! -f client-key.pem  ]] ; then
+    openssl req -newkey rsa:4096 -days 365 -nodes -x509 -out client.pem -keyout client-key.pem -config ../clientcertreq.conf
+fi
 
-#
-# Converting directories: overwrite with "--dirs="  ""
-#
-# /home /root /usr/local/lib
-#
-# /fspf/home /fspf/root /fspf/usr/local/lib/python3.7/
-# Replacing:
+curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$SESSION_FILE -X POST https://$CAS_ADDR:8081/session >/dev/stderr
+
+
+NAME="$NAMESPACE-$SESSION"
+echo $NAME
+
+popd >>/dev/stderr
