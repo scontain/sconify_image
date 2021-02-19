@@ -82,28 +82,34 @@ it uses some standard images in the generation:
 
 The following options are supported:
 
+  -h, --help               display this help and exit
+
+REQUIRED:
   --from=NATIVE_IMAGE       name of native image
   --to=TO_IMAGE             name of encrypted image
-  --template=TEMPLATE_FILE  file containing policy template (default=session-template.yml)
-  --session=SESSION_FILE    file that will contain the session (default=session.yml)
-  --namespace=NAMESPACE     namespace of this session (default=RANDOM)
-  --namespace-template=NAMESPACE_TEMPLATE_FILE  file containing namespace template (default=namespace-template.yml). NOTE: ONLY WORKS FOR SCONE VERSION >= 5.1
-  --namespace-session=NAMESPACE_SESSION_FILE    file that will contain the namespace session (default=namespace-session.yml). NOTE: ONLY WORKS FOR SCONE CAS VERSION >= 5.1
   --dir=DIRECTORY           add directory to encrypt; add one option per directory
-  --plain=DIRECTORIES       copy directories that are not encrypted
-  --cas=CAS_ADDR            set the name of the CAS_ADDR
   --base=BASE               set the base image used to generate the encrypted image
   --cli=CLI                 set the SCONE CLI image
-  --trace=TRACEFILE         use tracefile to create encrypted files
   --name=SESSION	    name of CAS policy session
+
+OPTIONAL:
+  --cas=CAS_ADDR            set the name of the CAS_ADDR (default=5-2-0.scone-cas.cf)
+  --plain=DIRECTORIES       copy directories that are not encrypted
+  --namespace=NAMESPACE     namespace of this session (default=RANDOM)
+  --trace=TRACEFILE         use tracefile to create encrypted files
+  --template=TEMPLATE_FILE  file containing policy template (default=session-template.yml)
+  --session=SESSION_FILE    file that will contain the session (default=session.yml)
+  --namespace-template=NAMESPACE_TEMPLATE_FILE  file containing namespace template (default=namespace-template.yml). NOTE: ONLY WORKS FOR SCONE CAS VERSION >= 5.2
+  --namespace-session=NAMESPACE_SESSION_FILE    file that will contain the namespace session (default=namespace-session.yml). NOTE: ONLY WORKS FOR SCONE CAS VERSION >= 5.2
+
+ADVANCED: (see https://sconedocs.github.io/SCONE_ENV/)
   --heap=SCONE_HEAP	    specify a custom value for the SCONE_HEAP. Expected value in range [8388608, 64424509440]. Allowed suffixes: kKmMgG. (default=1G)
   --stack=SCONE_STACK	    specify a custom value for the SCONE_STACK. Expected value in range [32768, 8388608]. Allowed suffixes: kKmMgG. (default=4M)
   --dlopen=SCONE_ALLOW_DLOPEN   specify a custom value for SCONE_ALLOW_DLOPEN. Expected value 0, 1 or 2. (default=2)
 
-  -h, --help               display this help and exit
 
 Usage example: encrypt Python image
-./sconify_image --name=flask --from=native_flask_restapi_image --to=new_image --template=flask.template --namespace=my_unique_namespace --cas=4-0-0.scone-cas.cf
+./sconify_image --name=flask --from=native_flask_restapi_image --to=new_image --template=flask.template --namespace=my_unique_namespace --cas=5-2-0.scone-cas.cf
 "
     exit 0
 }
@@ -118,7 +124,7 @@ TO_IMAGE=""
 PLAIN_DIRS=()
 TEMPLATE_FILE="session-template.yml"
 SESSION_FILE="session.yml"
-CAS="5-1-0.scone-cas.cf"
+CAS="5-2-0.scone-cas.cf"
 CLI_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:hello-k8s-scone0.1"
 BASE_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:python-3.7.3-alpine3.10-scone5.1"
 TRACEFILE=""
