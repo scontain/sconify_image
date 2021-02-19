@@ -87,6 +87,8 @@ The following options are supported:
   --template=TEMPLATE_FILE  file containing policy template (default=session-template.yml)
   --session=SESSION_FILE    file that will contain the session (default=session.yml)
   --namespace=NAMESPACE     namespace of this session (default=RANDOM)
+  --namespace-template=NAMESPACE_TEMPLATE_FILE  file containing namespace template (default=namespace-template.yml). NOTE: ONLY WORKS FOR SCONE VERSION >= 5.1
+  --namespace-session=NAMESPACE_SESSION_FILE    file that will contain the namespace session (default=namespace-session.yml). NOTE: ONLY WORKS FOR SCONE CAS VERSION >= 5.1
   --dir=DIRECTORY           add directory to encrypt; add one option per directory
   --plain=DIRECTORIES       copy directories that are not encrypted
   --cas=CAS_ADDR            set the name of the CAS_ADDR
@@ -109,6 +111,8 @@ Usage example: encrypt Python image
 # define default arguments
 
 NAMESPACE="NS-$RANDOM"
+NAMESPACE_TEMPLATE_FILE="namespace-template.yml"
+NAMESPACE_SESSION_FILE="namespace-session.yml"
 NATIVE_IMAGE=""
 TO_IMAGE=""
 PLAIN_DIRS=()
@@ -195,6 +199,16 @@ function parse_args {
 
         --namespace=*)
         export NAMESPACE="${1#*=}"
+        shift
+        ;;
+
+        --namespace-template=*)
+        export NAMESPACE_TEMPLATE_FILE="${1#*=}"
+        shift
+        ;;
+
+        --namespace-session=*)
+        export NAMESPACE_SESSION_FILE="${1#*=}"
         shift
         ;;
 
@@ -372,6 +386,7 @@ export CMD=${CMD_1%"]"}
 
 envsubst '$SCONE_FSPF_KEY $SCONE_FSPF_TAG $SESSION $MRENCLAVE $ENVVARS $CMD $SECRETS $INJECTED_FILES $NAMESPACE'  < "../$TEMPLATE_FILE" >  "$SESSION_FILE"
 
+envsubst '$NAMESPACE' < "../$NAMESPACE_TEMPLATE_FILE" > "$NAMESPACE_SESSION_FILE"
 
 SOURCE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
@@ -381,10 +396,12 @@ if [[ ! -f client.pem || ! -f client-key.pem  ]] ; then
     openssl req -newkey rsa:4096 -days 365 -nodes -x509 -out client.pem -keyout client-key.pem -config ../clientcertreq.conf
 fi
 
+curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$NAMESPACE_SESSION_FILE -X POST https://$CAS_ADDR:8081/v1/sessions >/dev/stderr
+
 curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$SESSION_FILE -X POST https://$CAS_ADDR:8081/v1/sessions >/dev/stderr
 
 
-NAME="$NAMESPACE-$SESSION"
+NAME="$NAMESPACE/$SESSION"
 echo $NAME
 
 popd >>/dev/stderr
