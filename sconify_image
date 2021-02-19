@@ -87,20 +87,19 @@ The following options are supported:
 REQUIRED:
   --from=NATIVE_IMAGE       name of native image
   --to=TO_IMAGE             name of encrypted image
-  --dir=DIRECTORY           add directory to encrypt; add one option per directory
   --base=BASE               set the base image used to generate the encrypted image
   --cli=CLI                 set the SCONE CLI image
   --name=SESSION	    name of CAS policy session
 
 OPTIONAL:
-  --cas=CAS_ADDR            set the name of the CAS_ADDR (default=5-2-0.scone-cas.cf)
+  --dir=DIRECTORY           add directory to encrypt; add one option per directory
   --plain=DIRECTORIES       copy directories that are not encrypted
+  --cas=CAS_ADDR            set the name of the CAS_ADDR (default=5-2-0.scone-cas.cf)
   --namespace=NAMESPACE     namespace of this session (default=RANDOM)
+  --create-namespace        create namespace
   --trace=TRACEFILE         use tracefile to create encrypted files
   --template=TEMPLATE_FILE  file containing policy template (default=session-template.yml)
   --session=SESSION_FILE    file that will contain the session (default=session.yml)
-  --namespace-template=NAMESPACE_TEMPLATE_FILE  file containing namespace template (default=namespace-template.yml). NOTE: ONLY WORKS FOR SCONE CAS VERSION >= 5.2
-  --namespace-session=NAMESPACE_SESSION_FILE    file that will contain the namespace session (default=namespace-session.yml). NOTE: ONLY WORKS FOR SCONE CAS VERSION >= 5.2
 
 ADVANCED: (see https://sconedocs.github.io/SCONE_ENV/)
   --heap=SCONE_HEAP	    specify a custom value for the SCONE_HEAP. Expected value in range [8388608, 64424509440]. Allowed suffixes: kKmMgG. (default=1G)
@@ -117,8 +116,7 @@ Usage example: encrypt Python image
 # define default arguments
 
 NAMESPACE="NS-$RANDOM"
-NAMESPACE_TEMPLATE_FILE="namespace-template.yml"
-NAMESPACE_SESSION_FILE="namespace-session.yml"
+CREATE_NAMESPACE=0
 NATIVE_IMAGE=""
 TO_IMAGE=""
 PLAIN_DIRS=()
@@ -149,19 +147,19 @@ function parse_args {
         ;;
 
         --secrets=*)
-            export SECRETS="${1#*=}"
-            shift
-            ;;
+        export SECRETS="${1#*=}"
+        shift
+        ;;
 
         --injectedfiles=*)
-            export INJECTED_FILES="${1#*=}"
-            shift
-            ;;
+        export INJECTED_FILES="${1#*=}"
+        shift
+        ;;
 
         --name=*)
-            export SESSION="${1#*=}"
-            shift
-            ;;
+        export SESSION="${1#*=}"
+        shift
+        ;;
 
         --binary=*)
         BINARY="${1#*=}"
@@ -208,13 +206,8 @@ function parse_args {
         shift
         ;;
 
-        --namespace-template=*)
-        export NAMESPACE_TEMPLATE_FILE="${1#*=}"
-        shift
-        ;;
-
-        --namespace-session=*)
-        export NAMESPACE_SESSION_FILE="${1#*=}"
+        --create-namespace)
+        export CREATE_NAMESPACE="1"
         shift
         ;;
 
@@ -265,7 +258,6 @@ check_empty "--cli=CLI_IMAGE" "$CLI_IMAGE"
 check_empty "--base=BASE_IMAGE" "$BASE_IMAGE"
 check_empty "--session=[SESSION_FILE]" "$SESSION_FILE"
 check_empty "--binary=[BINARY]" "$BINARY"
-check_empty "--dirs=DIRS" "$ENC_DIRS"
 
 #  "Converting image $NATIVE_IMAGE to encrypted image $TO_IMAGE"
 
@@ -390,9 +382,33 @@ CMD_0=$(docker image inspect --format "{{.Config.Cmd}}" $NATIVE_IMAGE)
 CMD_1=${CMD_0#"[/bin/sh -c "}
 export CMD=${CMD_1%"]"}
 
+if [[ $CREATE_NAMESPACE == 1 ]] ; then
+    cat > /policy/ns_policy.yml <<EOF
+    name: $NAMESPACE
+    version: "0.3"
+
+    access_policy:
+      read:
+      - CREATOR
+      update:
+      - CREATOR
+      create_sessions:
+      - CREATOR
+EOF
+
+    scone session create /policy/ns_policy.yml > /policy/ns_policy_creator.pem || error_exit "Failed to create namespace $NAMESPACE"
+
+    echo "Created namespace $NAMESPACE" > /dev/stderr
+fi
+
+# Check that we own the namespace
+
+scone session read $NAMESPACE || error_exit "Failed to read namespace $NAMESPACE. Was it previously created by us?"
+
+
+
 envsubst '$SCONE_FSPF_KEY $SCONE_FSPF_TAG $SESSION $MRENCLAVE $ENVVARS $CMD $SECRETS $INJECTED_FILES $NAMESPACE'  < "../$TEMPLATE_FILE" >  "$SESSION_FILE"
 
-envsubst '$NAMESPACE' < "../$NAMESPACE_TEMPLATE_FILE" > "$NAMESPACE_SESSION_FILE"
 
 SOURCE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
@@ -402,7 +418,6 @@ if [[ ! -f client.pem || ! -f client-key.pem  ]] ; then
     openssl req -newkey rsa:4096 -days 365 -nodes -x509 -out client.pem -keyout client-key.pem -config ../clientcertreq.conf
 fi
 
-curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$NAMESPACE_SESSION_FILE -X POST https://$CAS_ADDR:8081/v1/sessions >/dev/stderr
 
 curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$SESSION_FILE -X POST https://$CAS_ADDR:8081/v1/sessions >/dev/stderr
 
