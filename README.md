@@ -117,7 +117,7 @@ export IMAGE="flask_restapi_image"
 - We use a public SCONE CAS to store the session policies
 
 ```bash
-export SCONE_CAS_ADDR="5-1-0.scone-cas.cf"
+export SCONE_CAS_ADDR="5-2-0.scone-cas.cf"
 ```
 
 - we define a random namespace for this policy:

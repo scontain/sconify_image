@@ -382,28 +382,6 @@ CMD_0=$(docker image inspect --format "{{.Config.Cmd}}" $NATIVE_IMAGE)
 CMD_1=${CMD_0#"[/bin/sh -c "}
 export CMD=${CMD_1%"]"}
 
-if [[ $CREATE_NAMESPACE == 1 ]] ; then
-    cat > /policy/ns_policy.yml <<EOF
-    name: $NAMESPACE
-    version: "0.3"
-
-    access_policy:
-      read:
-      - CREATOR
-      update:
-      - CREATOR
-      create_sessions:
-      - CREATOR
-EOF
-
-    scone session create /policy/ns_policy.yml > /policy/ns_policy_creator.pem || error_exit "Failed to create namespace $NAMESPACE"
-
-    echo "Created namespace $NAMESPACE" > /dev/stderr
-fi
-
-# Check that we own the namespace
-
-scone session read $NAMESPACE || error_exit "Failed to read namespace $NAMESPACE. Was it previously created by us?"
 
 
 
@@ -418,6 +396,32 @@ if [[ ! -f client.pem || ! -f client-key.pem  ]] ; then
     openssl req -newkey rsa:4096 -days 365 -nodes -x509 -out client.pem -keyout client-key.pem -config ../clientcertreq.conf
 fi
 
+
+if [[ $CREATE_NAMESPACE == 1 ]] ; then
+    cat > /policy/ns_policy.yml <<EOF
+    name: $NAMESPACE
+    version: "0.3"
+
+    access_policy:
+      read:
+      - CREATOR
+      update:
+      - CREATOR
+      create_sessions:
+      - CREATOR
+EOF
+
+    # Create the namespace
+    curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$PWD/policy/ns_policy.yml https://$CAS_ADDR:8081/v1/sessions >/dev/stderr || error_exit "Failed to create namespace $NAMESPACE"
+
+    echo "Created namespace $NAMESPACE" > /dev/stderr
+fi
+
+# Check that we own the namespace
+
+curl -v -k -s --cert client.pem  --key client-key.pem https://$CAS_ADDR:8081/v1/sessions/$NAMESPACE || error_exit "Failed to read namespace $NAMESPACE. Was it previously created by us?"
+
+# Post the session
 
 curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$SESSION_FILE -X POST https://$CAS_ADDR:8081/v1/sessions >/dev/stderr
 
