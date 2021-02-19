@@ -132,10 +132,18 @@ export NAMESPACE="my_namespace-$RANDOM"
 export BINARY="/usr/local/bin/python3"
 ```
 
+- we define the [SCONE environment variables]("https://sconedocs.github.io/SCONE_ENV/") to configure the secure execution:
+
+```bash
+export SCONE_HEAP=1G
+export SCONE_STACK=4M
+export SCONE_ALLOW_DLOPEN=2
+```
+
 Now, we can create the encrypted image, instantiate policy template and upload the policy in one step:
 
 ```bash
-export SESSION=$(./sconify_image --namespace=$NAMESPACE --name=flask --from=$NATIVE_IMAGE --to=$IMAGE --cas=$SCONE_CAS_ADDR --dir="/home" --dir="/usr/local/lib" --dir="/app" --dir="/usr/lib/python3.7" --dir="/tls"  --binary=$BINARY)
+export SESSION=$(./sconify_image --namespace=$NAMESPACE --name=flask --from=$NATIVE_IMAGE --to=$IMAGE --cas=$SCONE_CAS_ADDR --dir="/home" --dir="/usr/local/lib" --dir="/app" --dir="/usr/lib/python3.7" --dir="/tls" --heap=$SCONE_HEAP --stack=$SCONE_STACK --dlopen=$SCONE_ALLOW_DLOPEN  --binary=$BINARY)
 ```
 
 Environment variable SESSION will contain the name of the session, which in this case would be "$NAMESPACE-flask" because we set the name of the session to be `flask` (i.e., by passing argument `--name=flask`).

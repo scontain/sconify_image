@@ -82,18 +82,21 @@ it uses some standard images in the generation:
 
 The following options are supported:
 
-  --from=NATIVE_IMAGE      name of native image
-  --to=TO_IMAGE            name of encrypted image
-  --template=TEMPLATE_FILE file containing policy template (default=session-template.yml)
-  --session=SESSION_FILE   file that will contain the session (default=session.yml)
-  --namespace=NAMESPACE    namespace of this session (default=RANDOM)
-  --dir=DIRECTORY          add directory to encrypt; add one option per directory
-  --plain=DIRECTORIES      copy directories that are not encrypted
-  --cas=CAS_ADDR           set the name of the CAS_ADDR
-  --base=BASE              set the base image used to generate the encrypted image
-  --cli=CLI                set the SCONE CLI image
-  --trace=TRACEFILE        use tracefile to create encrypted files
-  --name=SESSION	       name of CAS policy session
+  --from=NATIVE_IMAGE       name of native image
+  --to=TO_IMAGE             name of encrypted image
+  --template=TEMPLATE_FILE  file containing policy template (default=session-template.yml)
+  --session=SESSION_FILE    file that will contain the session (default=session.yml)
+  --namespace=NAMESPACE     namespace of this session (default=RANDOM)
+  --dir=DIRECTORY           add directory to encrypt; add one option per directory
+  --plain=DIRECTORIES       copy directories that are not encrypted
+  --cas=CAS_ADDR            set the name of the CAS_ADDR
+  --base=BASE               set the base image used to generate the encrypted image
+  --cli=CLI                 set the SCONE CLI image
+  --trace=TRACEFILE         use tracefile to create encrypted files
+  --name=SESSION	    name of CAS policy session
+  --heap=SCONE_HEAP	    specify a custom value for the SCONE_HEAP. Expected value in range [8388608, 64424509440]. Allowed suffixes: kKmMgG. (default=1G)
+  --stack=SCONE_STACK	    specify a custom value for the SCONE_STACK. Expected value in range [32768, 8388608]. Allowed suffixes: kKmMgG. (default=4M)
+  --dlopen=SCONE_ALLOW_DLOPEN   specify a custom value for SCONE_ALLOW_DLOPEN. Expected value 0, 1 or 2. (default=2)
 
   -h, --help               display this help and exit
 
@@ -115,6 +118,9 @@ CAS="5-1-0.scone-cas.cf"
 CLI_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:hello-k8s-scone0.1"
 BASE_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:python-3.7.3-alpine3.10-scone5.1"
 TRACEFILE=""
+SCONE_HEAP="1G"
+SCONE_STACK="4M"
+SCONE_ALLOW_DLOPEN="2"
 
 function parse_args {
     PARAMS=""
@@ -199,6 +205,21 @@ function parse_args {
 
         --cas=*)
         CAS_ADDR="${1#*=}"
+        shift
+        ;;
+
+        --heap=*)
+        SCONE_HEAP="${1#*=}"
+        shift
+        ;;
+
+        --stack=*)
+        SCONE_STACK="${1#*=}"
+        shift
+        ;;
+
+        --dlopen=*)
+        SCONE_ALLOW_DLOPEN="${1#*=}"
         shift
         ;;
 
@@ -343,7 +364,7 @@ export ENVVARS=$(docker run -it --rm $NATIVE_IMAGE sh -c "env" | while IFS="=" r
   fi
 done ; echo "     pwd: \"$default_pwd\"" )
 # determine MrEnclave of sconified binary
-MRENCLAVE_0=$(docker run -it --rm -e SCONE_HASH=1 $TO_IMAGE $BINARY)
+MRENCLAVE_0=$(docker run -it --rm -e SCONE_HASH=1 -e SCONE_HEAP=$SCONE_HEAP -e SCONE_STACK=$SCONE_STACK -e SCONE_ALLOW_DLOPEN=$SCONE_ALLOW_DLOPEN $TO_IMAGE $BINARY)
 export MRENCLAVE=${MRENCLAVE_0/$'\r'}
 CMD_0=$(docker image inspect --format "{{.Config.Cmd}}" $NATIVE_IMAGE)
 CMD_1=${CMD_0#"[/bin/sh -c "}
