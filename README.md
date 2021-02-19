@@ -52,7 +52,8 @@ One can see that the application access the following directories:
 
  - `/usr/local/lib`
  - `/app`
- - `/usr/lib/python3.7`
+ - `/usr/loca/lib/python3.7`
+ - `/tls`
 
 ### Security Policy
 
@@ -116,7 +117,7 @@ export IMAGE="flask_restapi_image"
 - We use a public SCONE CAS to store the session policies
 
 ```bash
-export SCONE_CAS_ADDR="4-2-1.scone-cas.cf"
+export SCONE_CAS_ADDR="5-1-0.scone-cas.cf"
 ```
 
 - we define a random namespace for this policy:
@@ -128,13 +129,13 @@ export NAMESPACE="my_namespace-$RANDOM"
 - we define the binary that needs to be sconified:
 
 ```bash
-export BINARY="/usr/bin/python3"
+export BINARY="/usr/local/bin/python3"
 ```
 
 Now, we can create the encrypted image, instantiate policy template and upload the policy in one step:
 
 ```bash
-export SESSION=$(./sconify_image --namespace=$NAMESPACE --name=flask --from=$NATIVE_IMAGE --to=$IMAGE --cas=$SCONE_CAS_ADDR --dir="/home" --dir="/usr/local/lib" --dir="/app" --dir="/usr/lib/python3.7"  --binary=$BINARY)
+export SESSION=$(./sconify_image --namespace=$NAMESPACE --name=flask --from=$NATIVE_IMAGE --to=$IMAGE --cas=$SCONE_CAS_ADDR --dir="/home" --dir="/usr/local/lib" --dir="/app" --dir="/usr/lib/python3.7" --dir="/tls"  --binary=$BINARY)
 ```
 
 Environment variable SESSION will contain the name of the session, which in this case would be "$NAMESPACE-flask" because we set the name of the session to be `flask` (i.e., by passing argument `--name=flask`).

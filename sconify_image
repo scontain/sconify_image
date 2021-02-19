@@ -111,9 +111,9 @@ TO_IMAGE=""
 PLAIN_DIRS=()
 TEMPLATE_FILE="session-template.yml"
 SESSION_FILE="session.yml"
-CAS="4-2-1.scone-cas.cf"
-CLI_IMAGE="sconecuratedimages/kubernetes:hello-k8s-scone0.1"
-BASE_IMAGE="sconecuratedimages/kubernetes:python-3.7.3-alpine3.10-scone4.2"
+CAS="5-1-0.scone-cas.cf"
+CLI_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:hello-k8s-scone0.1"
+BASE_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:python-3.7.3-alpine3.10-scone5.1"
 TRACEFILE=""
 
 function parse_args {
@@ -360,7 +360,7 @@ if [[ ! -f client.pem || ! -f client-key.pem  ]] ; then
     openssl req -newkey rsa:4096 -days 365 -nodes -x509 -out client.pem -keyout client-key.pem -config ../clientcertreq.conf
 fi
 
-curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$SESSION_FILE -X POST https://$CAS_ADDR:8081/session >/dev/stderr
+curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$SESSION_FILE -X POST https://$CAS_ADDR:8081/v1/sessions >/dev/stderr
 
 
 NAME="$NAMESPACE-$SESSION"

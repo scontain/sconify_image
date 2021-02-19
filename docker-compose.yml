@@ -1,7 +1,7 @@
 version: '3.2'
 services:
     las:
-        image: sconecuratedimages/kubernetes:las
+        image: registry.scontain.com:5050/sconecuratedimages/kubernetes:las-scone5.1
         devices:
          - "$DEVICE"
     python:
