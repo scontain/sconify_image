@@ -23,7 +23,34 @@ WITH ANY OTHER PROGRAMS), EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF
 Copyright (C) 2020 scontain.com
 '
 
-set -e 
+set -eu
+
+umask 077
+
+###
+### Globals
+###
+
+# define default arguments
+
+NAMESPACE="NS-$RANDOM"
+CREATE_NAMESPACE=0
+NATIVE_IMAGE=""
+TO_IMAGE=""
+PLAIN_DIRS=()
+TEMPLATE_FILE="session-template.yml"
+SESSION_FILE="session.yml"
+CAS="5-2-0.scone-cas.cf"
+CLI_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:hello-k8s-scone0.1"
+BASE_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:python-3.7.3-alpine3.10-scone5.1"
+TRACE_FILE=""
+SCONE_HEAP="1G"
+SCONE_STACK="4M"
+SCONE_ALLOW_DLOPEN="2"
+
+###
+### Functions
+###
 
 # print the right color for each level
 #
@@ -82,39 +109,38 @@ it uses some standard images in the generation:
 
 The following options are supported:
 
-  --from=NATIVE_IMAGE      name of native image
-  --to=TO_IMAGE            name of encrypted image
-  --template=TEMPLATE_FILE file containing policy template (default=session-template.yml)
-  --session=SESSION_FILE   file that will contain the session (default=session.yml)
-  --namespace=NAMESPACE    namespace of this session (default=RANDOM)
-  --dir=DIRECTORY          add directory to encrypt; add one option per directory
-  --plain=DIRECTORIES      copy directories that are not encrypted
-  --cas=CAS_ADDR           set the name of the CAS_ADDR
-  --base=BASE              set the base image used to generate the encrypted image
-  --cli=CLI                set the SCONE CLI image
-  --trace=TRACEFILE        use tracefile to create encrypted files
-  --name=SESSION	       name of CAS policy session
-
   -h, --help               display this help and exit
 
+REQUIRED:
+  --from=NATIVE_IMAGE       name of native image
+  --to=TO_IMAGE             name of encrypted image
+  --base=BASE               set the base image used to generate the encrypted image
+  --binary                  binary of the base image image
+  --cli=CLI                 set the SCONE CLI image
+  --name=SESSION	    name of CAS policy session
+
+OPTIONAL:
+  --dir=DIRECTORY           add directory to encrypt; add one option per directory
+  --plain=DIRECTORIES       copy directories that are not encrypted
+  --cas=CAS_ADDR            set the name of the CAS_ADDR (default=5-2-0.scone-cas.cf)
+  --namespace=NAMESPACE     namespace of this session (default=RANDOM)
+  --create-namespace        create namespace
+  --trace=TRACE_FILE        use tracefile to create encrypted files
+  --template=TEMPLATE_FILE  file containing policy template (default=session-template.yml)
+  --session=SESSION_FILE    file that will contain the session (default=session.yml)
+
+ADVANCED: (see https://sconedocs.github.io/SCONE_ENV/)
+  --heap=SCONE_HEAP	    specify a custom value for the SCONE_HEAP. Expected value in range [8388608, 64424509440]. Allowed suffixes: kKmMgG. (default=1G)
+  --stack=SCONE_STACK	    specify a custom value for the SCONE_STACK. Expected value in range [32768, 8388608]. Allowed suffixes: kKmMgG. (default=4M)
+  --dlopen=SCONE_ALLOW_DLOPEN   specify a custom value for SCONE_ALLOW_DLOPEN. Expected value 0, 1 or 2. (default=2)
+
+
 Usage example: encrypt Python image
-./sconify_image --name=flask --from=native_flask_restapi_image --to=new_image --template=flask.template --namespace=my_unique_namespace --cas=4-0-0.scone-cas.cf
+./sconify_image --name=flask --from=native_flask_restapi_image --to=new_image --template=flask.template --namespace=my_unique_namespace --cas=5-2-0.scone-cas.cf
 "
     exit 0
 }
 
-# define default arguments
-
-NAMESPACE="NS-$RANDOM"
-NATIVE_IMAGE=""
-TO_IMAGE=""
-PLAIN_DIRS=()
-TEMPLATE_FILE="session-template.yml"
-SESSION_FILE="session.yml"
-CAS="4-2-1.scone-cas.cf"
-CLI_IMAGE="sconecuratedimages/kubernetes:hello-k8s-scone0.1"
-BASE_IMAGE="sconecuratedimages/kubernetes:python-3.7.3-alpine3.10-scone4.2"
-TRACEFILE=""
 
 function parse_args {
     PARAMS=""
@@ -133,19 +159,19 @@ function parse_args {
         ;;
 
         --secrets=*)
-            export SECRETS="${1#*=}"
-            shift
-            ;;
+        export SECRETS="${1#*=}"
+        shift
+        ;;
 
         --injectedfiles=*)
-            export INJECTED_FILES="${1#*=}"
-            shift
-            ;;
+        export INJECTED_FILES="${1#*=}"
+        shift
+        ;;
 
         --name=*)
-            export SESSION="${1#*=}"
-            shift
-            ;;
+        export SESSION="${1#*=}"
+        shift
+        ;;
 
         --binary=*)
         BINARY="${1#*=}"
@@ -192,6 +218,11 @@ function parse_args {
         shift
         ;;
 
+        --create-namespace)
+        export CREATE_NAMESPACE="1"
+        shift
+        ;;
+
         --plain=*)
         PLAIN_DIRS=(${1#*=})
         shift
@@ -199,6 +230,21 @@ function parse_args {
 
         --cas=*)
         CAS_ADDR="${1#*=}"
+        shift
+        ;;
+
+        --heap=*)
+        SCONE_HEAP="${1#*=}"
+        shift
+        ;;
+
+        --stack=*)
+        SCONE_STACK="${1#*=}"
+        shift
+        ;;
+
+        --dlopen=*)
+        SCONE_ALLOW_DLOPEN="${1#*=}"
         shift
         ;;
 
@@ -212,19 +258,28 @@ function parse_args {
     eval set -- "$PARAMS"
 }
 
+
+function check_required_vars {
+    check_empty "--from=IMAGE" "$NATIVE_IMAGE"
+    check_empty "--to=IMAGE" "$TO_IMAGE"
+    check_empty "--template=TEMPLATE_FILE" "$TEMPLATE_FILE"
+    check_empty "--cas=CAS_ADDR" "$CAS_ADDR"
+    check_empty "--cli=CLI_IMAGE" "$CLI_IMAGE"
+    check_empty "--base=BASE_IMAGE" "$BASE_IMAGE"
+    check_empty "--session=[SESSION_FILE]" "$SESSION_FILE"
+    check_empty "--binary=[BINARY]" "$BINARY"
+}
+
+
+###
+### Main
+###
+
 parse_args $@
+check_required_vars
 
 # check that required arguments are all defined
 
-check_empty "--from=IMAGE" "$NATIVE_IMAGE"
-check_empty "--to=IMAGE" "$TO_IMAGE"
-check_empty "--template=TEMPLATE_FILE" "$TEMPLATE_FILE"
-check_empty "--cas=CAS_ADDR" "$CAS_ADDR"
-check_empty "--cli=CLI_IMAGE" "$CLI_IMAGE"
-check_empty "--base=BASE_IMAGE" "$BASE_IMAGE"
-check_empty "--session=[SESSION_FILE]" "$SESSION_FILE"
-check_empty "--binary=[BINARY]" "$BINARY"
-check_empty "--dirs=DIRS" "$ENC_DIRS"
 
 #  "Converting image $NATIVE_IMAGE to encrypted image $TO_IMAGE"
 
@@ -239,6 +294,7 @@ set -e
 export SCONE_MODE=SIM
 mkdir -p /fspf
 mkdir -p /fspf/encrypted-files/
+mkdir -p /native-files
 # create a file system protection file (first unencrypted)
 scone fspf create /fspf/fs.fspf
 # root region (i.e., "/") is not protected
@@ -343,13 +399,16 @@ export ENVVARS=$(docker run -it --rm $NATIVE_IMAGE sh -c "env" | while IFS="=" r
   fi
 done ; echo "     pwd: \"$default_pwd\"" )
 # determine MrEnclave of sconified binary
-MRENCLAVE_0=$(docker run -it --rm -e SCONE_HASH=1 $TO_IMAGE $BINARY)
+MRENCLAVE_0=$(docker run -it --rm -e SCONE_HASH=1 -e SCONE_HEAP=$SCONE_HEAP -e SCONE_STACK=$SCONE_STACK -e SCONE_ALLOW_DLOPEN=$SCONE_ALLOW_DLOPEN $TO_IMAGE $BINARY)
 export MRENCLAVE=${MRENCLAVE_0/$'\r'}
 CMD_0=$(docker image inspect --format "{{.Config.Cmd}}" $NATIVE_IMAGE)
 CMD_1=${CMD_0#"[/bin/sh -c "}
 export CMD=${CMD_1%"]"}
 
-envsubst '$SCONE_FSPF_KEY $SCONE_FSPF_TAG $SESSION $MRENCLAVE $ENVVARS $CMD $SECRETS $INJECTED_FILES $NAMESPACE'  < "../$TEMPLATE_FILE" >  "$SESSION_FILE"
+
+
+
+envsubst '$SCONE_FSPF_KEY $SCONE_FSPF_TAG $SESSION $MRENCLAVE $ENVVARS $CMD $SECRETS $INJECTED_FILES $NAMESPACE' < "../$TEMPLATE_FILE" >  "$SESSION_FILE"
 
 
 SOURCE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
@@ -360,10 +419,40 @@ if [[ ! -f client.pem || ! -f client-key.pem  ]] ; then
     openssl req -newkey rsa:4096 -days 365 -nodes -x509 -out client.pem -keyout client-key.pem -config ../clientcertreq.conf
 fi
 
-curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$SESSION_FILE -X POST https://$CAS_ADDR:8081/session >/dev/stderr
+
+if [[ $CREATE_NAMESPACE == 1 ]] ; then
+    mkdir -p $PWD/policy
+    cat > $PWD/policy/ns_policy.yml <<EOF
+    name: $NAMESPACE
+    version: "0.3"
+
+    access_policy:
+      read:
+      - CREATOR
+      update:
+      - CREATOR
+      create_sessions:
+      - CREATOR
+EOF
+
+    # Create the namespace
+    curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$PWD/policy/ns_policy.yml https://$CAS_ADDR:8081/v1/sessions >/dev/stderr || error_exit "Failed to create namespace $NAMESPACE"
+
+    echo "Created namespace $NAMESPACE" > /dev/stderr
+fi
+
+# Check that we own the namespace
+
+curl -v -k -s --cert client.pem  --key client-key.pem https://$CAS_ADDR:8081/v1/sessions/$NAMESPACE > /dev/null || error_exit "Failed to read namespace $NAMESPACE. Was it previously created by us?"
+
+# Post the session
+
+curl -v -k -s --cert client.pem  --key client-key.pem  --data-binary @$SESSION_FILE -X POST https://$CAS_ADDR:8081/v1/sessions >/dev/stderr
 
 
-NAME="$NAMESPACE-$SESSION"
+NAME="$NAMESPACE/$SESSION"
 echo $NAME
 
 popd >>/dev/stderr
+
+exit 0
