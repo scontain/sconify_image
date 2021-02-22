@@ -23,9 +23,34 @@ WITH ANY OTHER PROGRAMS), EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF
 Copyright (C) 2020 scontain.com
 '
 
-set -eux
+set -eu
 
 umask 077
+
+###
+### Globals
+###
+
+# define default arguments
+
+NAMESPACE="NS-$RANDOM"
+CREATE_NAMESPACE=0
+NATIVE_IMAGE=""
+TO_IMAGE=""
+PLAIN_DIRS=()
+TEMPLATE_FILE="session-template.yml"
+SESSION_FILE="session.yml"
+CAS="5-2-0.scone-cas.cf"
+CLI_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:hello-k8s-scone0.1"
+BASE_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:python-3.7.3-alpine3.10-scone5.1"
+TRACE_FILE=""
+SCONE_HEAP="1G"
+SCONE_STACK="4M"
+SCONE_ALLOW_DLOPEN="2"
+
+###
+### Functions
+###
 
 # print the right color for each level
 #
@@ -116,22 +141,6 @@ Usage example: encrypt Python image
     exit 0
 }
 
-# define default arguments
-
-NAMESPACE="NS-$RANDOM"
-CREATE_NAMESPACE=0
-NATIVE_IMAGE=""
-TO_IMAGE=""
-PLAIN_DIRS=()
-TEMPLATE_FILE="session-template.yml"
-SESSION_FILE="session.yml"
-CAS="5-2-0.scone-cas.cf"
-CLI_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:hello-k8s-scone0.1"
-BASE_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:python-3.7.3-alpine3.10-scone5.1"
-TRACE_FILE=""
-SCONE_HEAP="1G"
-SCONE_STACK="4M"
-SCONE_ALLOW_DLOPEN="2"
 
 function parse_args {
     PARAMS=""
@@ -249,18 +258,28 @@ function parse_args {
     eval set -- "$PARAMS"
 }
 
+
+function check_required_vars {
+    check_empty "--from=IMAGE" "$NATIVE_IMAGE"
+    check_empty "--to=IMAGE" "$TO_IMAGE"
+    check_empty "--template=TEMPLATE_FILE" "$TEMPLATE_FILE"
+    check_empty "--cas=CAS_ADDR" "$CAS_ADDR"
+    check_empty "--cli=CLI_IMAGE" "$CLI_IMAGE"
+    check_empty "--base=BASE_IMAGE" "$BASE_IMAGE"
+    check_empty "--session=[SESSION_FILE]" "$SESSION_FILE"
+    check_empty "--binary=[BINARY]" "$BINARY"
+}
+
+
+###
+### Main
+###
+
 parse_args $@
+check_required_vars
 
 # check that required arguments are all defined
 
-check_empty "--from=IMAGE" "$NATIVE_IMAGE"
-check_empty "--to=IMAGE" "$TO_IMAGE"
-check_empty "--template=TEMPLATE_FILE" "$TEMPLATE_FILE"
-check_empty "--cas=CAS_ADDR" "$CAS_ADDR"
-check_empty "--cli=CLI_IMAGE" "$CLI_IMAGE"
-check_empty "--base=BASE_IMAGE" "$BASE_IMAGE"
-check_empty "--session=[SESSION_FILE]" "$SESSION_FILE"
-check_empty "--binary=[BINARY]" "$BINARY"
 
 #  "Converting image $NATIVE_IMAGE to encrypted image $TO_IMAGE"
 
