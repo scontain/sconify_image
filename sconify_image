@@ -23,7 +23,7 @@ WITH ANY OTHER PROGRAMS), EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF
 Copyright (C) 2020 scontain.com
 '
 
-set -eu
+set -eux
 
 umask 077
 
@@ -275,6 +275,7 @@ set -e
 export SCONE_MODE=SIM
 mkdir -p /fspf
 mkdir -p /fspf/encrypted-files/
+mkdir -p /native-files
 # create a file system protection file (first unencrypted)
 scone fspf create /fspf/fs.fspf
 # root region (i.e., "/") is not protected
