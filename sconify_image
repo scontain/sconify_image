@@ -23,7 +23,9 @@ WITH ANY OTHER PROGRAMS), EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF
 Copyright (C) 2020 scontain.com
 '
 
-set -e 
+set -eu
+
+umask 077
 
 # print the right color for each level
 #
@@ -88,6 +90,7 @@ REQUIRED:
   --from=NATIVE_IMAGE       name of native image
   --to=TO_IMAGE             name of encrypted image
   --base=BASE               set the base image used to generate the encrypted image
+  --binary                  binary of the base image image
   --cli=CLI                 set the SCONE CLI image
   --name=SESSION	    name of CAS policy session
 
@@ -97,7 +100,7 @@ OPTIONAL:
   --cas=CAS_ADDR            set the name of the CAS_ADDR (default=5-2-0.scone-cas.cf)
   --namespace=NAMESPACE     namespace of this session (default=RANDOM)
   --create-namespace        create namespace
-  --trace=TRACEFILE         use tracefile to create encrypted files
+  --trace=TRACE_FILE        use tracefile to create encrypted files
   --template=TEMPLATE_FILE  file containing policy template (default=session-template.yml)
   --session=SESSION_FILE    file that will contain the session (default=session.yml)
 
@@ -125,7 +128,7 @@ SESSION_FILE="session.yml"
 CAS="5-2-0.scone-cas.cf"
 CLI_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:hello-k8s-scone0.1"
 BASE_IMAGE="registry.scontain.com:5050/sconecuratedimages/kubernetes:python-3.7.3-alpine3.10-scone5.1"
-TRACEFILE=""
+TRACE_FILE=""
 SCONE_HEAP="1G"
 SCONE_STACK="4M"
 SCONE_ALLOW_DLOPEN="2"
@@ -385,7 +388,7 @@ export CMD=${CMD_1%"]"}
 
 
 
-envsubst '$SCONE_FSPF_KEY $SCONE_FSPF_TAG $SESSION $MRENCLAVE $ENVVARS $CMD $SECRETS $INJECTED_FILES $NAMESPACE'  < "../$TEMPLATE_FILE" >  "$SESSION_FILE"
+envsubst '$SCONE_FSPF_KEY $SCONE_FSPF_TAG $SESSION $MRENCLAVE $ENVVARS $CMD $SECRETS $INJECTED_FILES $NAMESPACE' < "../$TEMPLATE_FILE" >  "$SESSION_FILE"
 
 
 SOURCE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
@@ -398,7 +401,8 @@ fi
 
 
 if [[ $CREATE_NAMESPACE == 1 ]] ; then
-    cat > /policy/ns_policy.yml <<EOF
+    mkdir -p $PWD/policy
+    cat > $PWD/policy/ns_policy.yml <<EOF
     name: $NAMESPACE
     version: "0.3"
 
@@ -419,7 +423,7 @@ fi
 
 # Check that we own the namespace
 
-curl -v -k -s --cert client.pem  --key client-key.pem https://$CAS_ADDR:8081/v1/sessions/$NAMESPACE || error_exit "Failed to read namespace $NAMESPACE. Was it previously created by us?"
+curl -v -k -s --cert client.pem  --key client-key.pem https://$CAS_ADDR:8081/v1/sessions/$NAMESPACE > /dev/null || error_exit "Failed to read namespace $NAMESPACE. Was it previously created by us?"
 
 # Post the session
 
@@ -430,3 +434,5 @@ NAME="$NAMESPACE/$SESSION"
 echo $NAME
 
 popd >>/dev/stderr
+
+exit 0

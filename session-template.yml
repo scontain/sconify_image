@@ -34,5 +34,5 @@ $SECRETS
 
 security:
   attestation:
-    tolerate: [debug-mode, hyperthreading, insecure-igpu, outdated-tcb]
+    tolerate: [debug-mode, hyperthreading, insecure-igpu, outdated-tcb, software-hardening-needed]
     ignore_advisories: "*"
